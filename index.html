@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Generator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PDF Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <style>
+        /* A4 Paper Dimensions for Screen */
+        .a4-page {
+            width: 210mm;
+            min-height: 297mm;
+            background: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin: 0 auto;
+            padding: 20mm;
+            box-sizing: border-box;
+            position: relative;
+        }
+        
+        .editable-input {
+            background: transparent;
+            border: 1px dashed transparent;
+            width: 100%;
+            transition: border-color 0.2s;
+            padding: 2px 0;
+            line-height: 1.5;
+        }
+        .editable-input:hover, .editable-input:focus {
+            border-bottom: 1px dashed #cbd5e1;
+            outline: none;
+        }
+
+        #print-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 50;
+            display: none;
+            padding: 20mm;
+        }
+        
+        @media (max-width: 850px) {
+            .a4-page {
+                width: 100%;
+                min-height: auto;
+                padding: 1rem;
+            }
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* Hide delete button during screen hover but keep accessible */
+        .remove-row-btn {
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        tr:hover .remove-row-btn {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden font-sans text-gray-800">
+
+    <!-- Sidebar -->
+    <div class="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg z-10 flex-shrink-0">
+        <div class="p-6 border-b border-gray-100">
+            <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <i class="fa-solid fa-file-invoice text-blue-600"></i> Invoice Tool
+            </h1>
+            <p class="text-xs text-gray-500 mt-1">Managed by Gaurav Gupta</p>
+        </div>
+        
+        <div class="p-4">
+            <button onclick="createNewInvoice()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                <i class="fa-solid fa-plus"></i> New Invoice
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto no-scrollbar px-4 pb-4 space-y-2" id="invoiceList">
+            <div class="flex justify-center p-4">
+                <i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex-1 overflow-y-auto relative p-8">
+        <!-- Toolbar -->
+        <div class="max-w-[210mm] mx-auto mb-6 flex justify-between items-center bg-white p-4 rounded-lg shadow-sm sticky top-0 z-20">
+            <div class="flex items-center gap-2 text-sm text-gray-600">
+                <span id="statusIndicator" class="w-2 h-2 rounded-full bg-yellow-400"></span>
+                <span id="statusText">Loading...</span>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="saveInvoice()" class="flex items-center gap-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium text-sm">
+                    <i class="fa-solid fa-floppy-disk"></i> Save
+                </button>
+                <button onclick="generatePDF()" id="btnDownload" class="flex items-center gap-2 px-4 py-2 text-white bg-gray-800 hover:bg-gray-900 rounded-lg transition-colors font-medium text-sm shadow-sm">
+                    <i class="fa-solid fa-download"></i> Download PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- Invoice Paper -->
+        <div id="invoicePaper" class="a4-page relative text-sm leading-relaxed overflow-hidden">
+            
+            <!-- Hidden Overlay for Print Quality -->
+            <div id="print-overlay"></div>
+
+            <!-- Header -->
+            <div class="flex justify-between items-start mb-12">
+                <div>
+                    <h2 class="text-4xl font-bold text-gray-800 tracking-wide mb-1">INVOICE</h2>
+                    <div class="mt-6 text-gray-600">
+                        <p class="text-xs font-bold text-gray-400 uppercase mb-1">From</p>
+                        <input type="text" id="fromName" class="editable-input font-bold text-gray-800 block mb-1" value="Gaurav Gupta">
+                        <input type="text" id="fromAddress" class="editable-input block" value="Surrey, BC">
+                        <div class="flex items-center gap-2">
+                            <span class="whitespace-nowrap">Ph#</span>
+                            <input type="text" id="fromPhone" class="editable-input w-full" value="236-878-6861">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="whitespace-nowrap">Email:</span>
+                            <input type="text" id="fromEmail" class="editable-input w-full" value="gauravgupta8319@gmail.com">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-right">
+                    <div class="mb-6">
+                        <div class="flex justify-end items-center gap-2 mb-1">
+                            <span class="font-bold text-gray-600 whitespace-nowrap">Invoice Number:</span>
+                            <input type="text" id="invoiceNumber" class="editable-input w-20 text-right font-mono font-bold text-gray-800" value="001">
+                        </div>
+                        <div class="flex justify-end items-center gap-2 mb-1">
+                            <span class="font-bold text-gray-600 whitespace-nowrap">Date:</span>
+                            <input type="date" id="invoiceDate" class="editable-input w-32 text-right text-gray-800">
+                        </div>
+                        <div class="flex justify-end items-center gap-2">
+                            <span class="font-bold text-gray-600 whitespace-nowrap">Terms:</span>
+                            <input type="text" id="paymentTerms" class="editable-input w-32 text-right text-gray-800" value="Due upon receipt">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bill To -->
+            <div class="mb-12">
+                <p class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1 inline-block">Bill To</p>
+                <div class="text-gray-700">
+                    <input type="text" id="toName" class="editable-input font-bold text-lg text-gray-800 mb-1" value="Vipin Gupta">
+                    <input type="text" id="toCompany" class="editable-input block mb-1" value="Frolic Expressions Speech Therapy Inc">
+                    <textarea id="toAddress" class="editable-input block resize-none h-12 mb-1 overflow-hidden" rows="2">8522 168 Street&#13;&#10;Surrey, BC - V4N 5A3</textarea>
+                    <div class="flex items-center gap-2">
+                        <span class="whitespace-nowrap">Ph#</span>
+                        <input type="text" id="toPhone" class="editable-input w-full" value="(778) 893 8887">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="whitespace-nowrap">Email:</span>
+                        <input type="text" id="toEmail" class="editable-input w-full" value="info@frolicexpressions.com">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <table class="w-full mb-4 border-collapse">
+                <thead>
+                    <tr class="bg-gray-100 text-gray-600 text-xs uppercase tracking-wider text-left">
+                        <th class="p-3 rounded-l-md w-1/2">Description</th>
+                        <th class="p-3 text-right">Hours</th>
+                        <th class="p-3 text-right">Rate</th>
+                        <th class="p-3 text-right">Amount</th>
+                        <th class="p-3 rounded-r-md"></th>
+                    </tr>
+                </thead>
+                <tbody id="itemsList">
+                    <!-- Dynamic Rows -->
+                </tbody>
+            </table>
+            
+            <button onclick="addNewRow()" class="mb-8 text-blue-600 font-bold flex items-center gap-2 hover:text-blue-800 transition-colors">
+                <i class="fa-solid fa-circle-plus"></i> Add Item
+            </button>
+
+            <!-- Totals Section -->
+            <div class="flex justify-end mb-8">
+                <div class="w-64 space-y-2">
+                    <div class="flex justify-between items-center text-gray-600">
+                        <span class="font-bold">SUBTOTAL</span>
+                        <span id="subtotalAmount" class="font-bold text-gray-800">$0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center text-gray-600 italic">
+                        <span class="font-bold">Discount (F&F %)</span>
+                        <input type="number" id="discountPercent" class="editable-input text-right font-bold text-red-500 w-16" value="0" oninput="calculateTotal()">
+                    </div>
+                    <div class="flex justify-between items-center border-t border-gray-200 pt-2">
+                        <span class="font-bold text-gray-800">TOTAL DUE</span>
+                        <span id="grandTotal" class="font-bold text-2xl text-blue-600">$0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="border-t border-gray-200 pt-6">
+                <h3 class="font-bold text-gray-800 mb-2">Payment Instructions:</h3>
+                <textarea id="paymentNotes" class="editable-input w-full resize-none h-20 text-gray-600 overflow-hidden" rows="3">Please send e-transfer to: gauravgupta8319@gmail.com</textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase & Logic -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let currentUser = null;
+        let currentInvoiceId = null;
+        let invoiceList = [];
+
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Auth failed", err);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                document.getElementById('statusText').innerText = "Ready";
+                document.getElementById('statusIndicator').className = "w-2 h-2 rounded-full bg-green-500";
+                startFirestoreListener();
+            }
+        });
+
+        initAuth();
+
+        function startFirestoreListener() {
+            if (!currentUser) return;
+            const ref = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices');
+            onSnapshot(ref, (snapshot) => {
+                invoiceList = [];
+                snapshot.forEach(doc => { invoiceList.push({ id: doc.id, ...doc.data() }); });
+                invoiceList.sort((a, b) => (parseInt(b.invoiceNumber) || 0) - (parseInt(a.invoiceNumber) || 0));
+                renderInvoiceList();
+            });
+        }
+
+        window.renderInvoiceList = () => {
+            const container = document.getElementById('invoiceList');
+            container.innerHTML = '';
+            if (invoiceList.length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-400 text-sm mt-4">No invoices found.</div>`;
+                return;
+            }
+            invoiceList.forEach(inv => {
+                const isActive = inv.id === currentInvoiceId;
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-lg border cursor-pointer transition-all ${isActive ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-200'}`;
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <div class="font-bold text-gray-800">#${inv.invoiceNumber}</div>
+                            <div class="text-xs text-gray-500">${inv.to?.company || 'Unknown Client'}</div>
+                        </div>
+                        <button class="text-gray-300 hover:text-red-500 transition-colors p-1" onclick="deleteInvoice('${inv.id}', event)">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                    <div class="flex justify-between items-center mt-2 text-xs">
+                        <span class="text-gray-400">${inv.date || ''}</span>
+                        <span class="font-bold text-gray-700">$${inv.total?.toFixed(2) || '0.00'}</span>
+                    </div>
+                `;
+                card.onclick = () => loadInvoiceIntoForm(inv);
+                container.appendChild(card);
+            });
+        };
+
+        window.addNewRow = (description = '', hours = 0, rate = 0) => {
+            const tbody = document.getElementById('itemsList');
+            const row = document.createElement('tr');
+            row.className = "border-b border-gray-100 group";
+            row.innerHTML = `
+                <td class="p-2">
+                    <input type="text" class="editable-input font-medium item-desc" value="${description}" oninput="calculateTotal()">
+                </td>
+                <td class="p-2">
+                    <input type="number" class="editable-input text-right item-hours" value="${hours}" step="0.5" oninput="calculateTotal()">
+                </td>
+                <td class="p-2">
+                    <div class="flex justify-end items-center">
+                        <span>$</span>
+                        <input type="number" class="editable-input text-right w-16 item-rate" value="${rate}" oninput="calculateTotal()">
+                    </div>
+                </td>
+                <td class="p-2 text-right font-bold text-gray-800 item-total">$0.00</td>
+                <td class="p-2 text-center">
+                    <button onclick="this.closest('tr').remove(); calculateTotal();" class="remove-row-btn text-gray-300 hover:text-red-500 transition-colors">
+                        <i class="fa-solid fa-circle-xmark"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+            calculateTotal();
+        };
+
+        window.calculateTotal = () => {
+            let subtotal = 0;
+            const rows = document.getElementById('itemsList').querySelectorAll('tr');
+            
+            rows.forEach(row => {
+                const hours = parseFloat(row.querySelector('.item-hours').value) || 0;
+                const rate = parseFloat(row.querySelector('.item-rate').value) || 0;
+                const rowTotal = hours * rate;
+                subtotal += rowTotal;
+                row.querySelector('.item-total').innerText = '$' + rowTotal.toFixed(2);
+            });
+            
+            const discountPercent = parseFloat(document.getElementById('discountPercent').value) || 0;
+            const discountAmount = (subtotal * discountPercent) / 100;
+            const total = subtotal - discountAmount;
+
+            document.getElementById('subtotalAmount').innerText = '$' + subtotal.toFixed(2);
+            document.getElementById('grandTotal').innerText = '$' + total.toFixed(2);
+            return { subtotal, total, discountAmount };
+        };
+
+        window.loadInvoiceIntoForm = (inv) => {
+            currentInvoiceId = inv.id;
+            document.getElementById('invoiceNumber').value = inv.invoiceNumber || '';
+            document.getElementById('invoiceDate').value = inv.date || '';
+            document.getElementById('paymentTerms').value = inv.dueDate || '';
+            document.getElementById('paymentNotes').value = inv.notes || '';
+            document.getElementById('fromName').value = inv.from?.name || '';
+            document.getElementById('fromAddress').value = inv.from?.address || '';
+            document.getElementById('fromPhone').value = inv.from?.phone || '';
+            document.getElementById('fromEmail').value = inv.from?.email || '';
+            document.getElementById('toName').value = inv.to?.name || '';
+            document.getElementById('toCompany').value = inv.to?.company || '';
+            document.getElementById('toAddress').value = inv.to?.address || '';
+            document.getElementById('toPhone').value = inv.to?.phone || '';
+            document.getElementById('toEmail').value = inv.to?.email || '';
+            document.getElementById('discountPercent').value = inv.discountPercent || 0;
+            
+            const tbody = document.getElementById('itemsList');
+            tbody.innerHTML = '';
+            if (inv.items && inv.items.length > 0) {
+                inv.items.forEach(item => {
+                    addNewRow(item.description, item.hours, item.rate);
+                });
+            } else {
+                addNewRow();
+            }
+            renderInvoiceList();
+            calculateTotal();
+        };
+
+        window.createNewInvoice = () => {
+            currentInvoiceId = null;
+            let nextNum = "001";
+            if (invoiceList.length > 0) {
+                const lastNum = parseInt(invoiceList[0].invoiceNumber);
+                if (!isNaN(lastNum)) nextNum = String(lastNum + 1).padStart(3, '0');
+            }
+            document.getElementById('invoiceNumber').value = nextNum;
+            document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('discountPercent').value = 0;
+            document.getElementById('itemsList').innerHTML = '';
+            addNewRow('Digital Marketing / Website Maintenance', 8, 50);
+            calculateTotal();
+            renderInvoiceList();
+        };
+
+        window.saveInvoice = async () => {
+            if (!currentUser) return;
+            const items = [];
+            document.querySelectorAll('#itemsList tr').forEach(row => {
+                items.push({
+                    description: row.querySelector('.item-desc').value,
+                    hours: parseFloat(row.querySelector('.item-hours').value) || 0,
+                    rate: parseFloat(row.querySelector('.item-rate').value) || 0
+                });
+            });
+
+            const data = {
+                invoiceNumber: document.getElementById('invoiceNumber').value,
+                date: document.getElementById('invoiceDate').value,
+                dueDate: document.getElementById('paymentTerms').value,
+                notes: document.getElementById('paymentNotes').value,
+                discountPercent: parseFloat(document.getElementById('discountPercent').value) || 0,
+                total: calculateTotal().total,
+                createdAt: serverTimestamp(),
+                from: {
+                    name: document.getElementById('fromName').value,
+                    address: document.getElementById('fromAddress').value,
+                    phone: document.getElementById('fromPhone').value,
+                    email: document.getElementById('fromEmail').value,
+                },
+                to: {
+                    name: document.getElementById('toName').value,
+                    company: document.getElementById('toCompany').value,
+                    address: document.getElementById('toAddress').value,
+                    phone: document.getElementById('toPhone').value,
+                    email: document.getElementById('toEmail').value,
+                },
+                items: items
+            };
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices');
+                if (currentInvoiceId) await updateDoc(doc(colRef, currentInvoiceId), data);
+                else { const docRef = await addDoc(colRef, data); currentInvoiceId = docRef.id; }
+            } catch (e) { console.error(e); }
+        };
+
+        window.deleteInvoice = async (id, event) => {
+            event.stopPropagation();
+            if (!confirm("Delete this invoice?") || !currentUser) return;
+            try { await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices', id)); }
+            catch (e) { console.error(e); }
+        };
+
+        window.generatePDF = async () => {
+            const btn = document.getElementById('btnDownload');
+            const overlay = document.getElementById('print-overlay');
+            const originalText = btn.innerHTML;
+            
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing...`;
+            btn.disabled = true;
+
+            try {
+                const getVal = (id) => document.getElementById(id).value;
+                const { subtotal, total, discountAmount } = calculateTotal();
+                const discountVal = parseFloat(getVal('discountPercent')) || 0;
+                
+                // Build Item Rows for PDF
+                let itemsHtml = '';
+                document.querySelectorAll('#itemsList tr').forEach(row => {
+                    const desc = row.querySelector('.item-desc').value;
+                    const hours = row.querySelector('.item-hours').value;
+                    const rate = row.querySelector('.item-rate').value;
+                    const amt = (parseFloat(hours) || 0) * (parseFloat(rate) || 0);
+                    itemsHtml += `
+                        <tr style="border-bottom:1px solid #f3f4f6; color:#1f2937;">
+                            <td style="padding:12px; font-weight:500;">${desc}</td>
+                            <td style="padding:12px; text-align:right;">${hours}</td>
+                            <td style="padding:12px; text-align:right;">$${rate}</td>
+                            <td style="padding:12px; text-align:right; font-weight:bold;">$${amt.toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+
+                let discountHtml = '';
+                if (discountVal > 0) {
+                    discountHtml = `
+                        <tr>
+                            <td colspan="3" style="padding:8px 16px; text-align:right; font-weight:bold; color:#4b5563; font-style:italic;">Family & Friends Discount (${discountVal}%)</td>
+                            <td style="padding:8px 16px; text-align:right; font-weight:bold; color:#ef4444;">-$${discountAmount.toFixed(2)}</td>
+                        </tr>
+                    `;
+                }
+
+                overlay.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:48px;">
+                        <div>
+                            <h2 style="font-size:36px; font-weight:bold; color:#1f2937; margin-bottom:24px;">INVOICE</h2>
+                            <div style="color:#4b5563;">
+                                <p style="font-size:10px; font-weight:bold; color:#9ca3af; text-transform:uppercase; margin-bottom:4px;">From</p>
+                                <p style="font-weight:bold; color:#111827; margin-bottom:4px;">${getVal('fromName')}</p>
+                                <p style="margin-bottom:4px;">${getVal('fromAddress')}</p>
+                                <p style="margin-bottom:4px;">Ph# ${getVal('fromPhone')}</p>
+                                <p style="margin-bottom:4px;">Email: ${getVal('fromEmail')}</p>
+                            </div>
+                        </div>
+                        <div style="text-align:right; color:#1f2937;">
+                            <p style="margin-bottom:4px;"><span style="font-weight:bold; color:#4b5563;">Invoice Number:</span> <span style="font-family:monospace; font-weight:bold;">${getVal('invoiceNumber')}</span></p>
+                            <p style="margin-bottom:4px;"><span style="font-weight:bold; color:#4b5563;">Date:</span> ${getVal('invoiceDate')}</p>
+                            <p><span style="font-weight:bold; color:#4b5563;">Terms:</span> ${getVal('paymentTerms')}</p>
+                        </div>
+                    </div>
+                    <div style="margin-bottom:48px;">
+                        <p style="font-size:10px; font-weight:bold; color:#9ca3af; text-transform:uppercase; margin-bottom:8px; border-bottom:1px solid #e5e7eb; display:inline-block; padding-bottom:4px;">Bill To</p>
+                        <div style="color:#374151;">
+                            <p style="font-weight:bold; font-size:18px; color:#111827; margin-bottom:4px;">${getVal('toName')}</p>
+                            <p style="margin-bottom:4px;">${getVal('toCompany')}</p>
+                            <p style="white-space:pre-wrap; margin-bottom:4px;">${getVal('toAddress')}</p>
+                            <p style="margin-bottom:4px;">Ph# ${getVal('toPhone')}</p>
+                            <p>Email: ${getVal('toEmail')}</p>
+                        </div>
+                    </div>
+                    <table style="width:100%; border-collapse:collapse; margin-bottom:32px;">
+                        <thead>
+                            <tr style="background:#f3f4f6; color:#4b5563; font-size:12px; text-transform:uppercase; text-align:left;">
+                                <th style="padding:12px;">Description</th>
+                                <th style="padding:12px; text-align:right;">Hours</th>
+                                <th style="padding:12px; text-align:right;">Rate</th>
+                                <th style="padding:12px; text-align:right;">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>${itemsHtml}</tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3" style="padding:16px 16px 8px 16px; text-align:right; font-weight:bold; color:#4b5563;">SUBTOTAL</td>
+                                <td style="padding:16px 16px 8px 16px; text-align:right; font-weight:bold; color:#1f2937;">$${subtotal.toFixed(2)}</td>
+                            </tr>
+                            ${discountHtml}
+                            <tr>
+                                <td colspan="3" style="padding:16px; text-align:right; font-weight:bold; color:#4b5563;">TOTAL DUE</td>
+                                <td style="padding:16px; text-align:right; font-weight:bold; font-size:24px; color:#2563eb;">$${total.toFixed(2)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <div style="border-top:1px solid #e5e7eb; padding-top:24px;">
+                        <h3 style="font-weight:bold; color:#1f2937; margin-bottom:8px;">Payment Instructions:</h3>
+                        <p style="color:#4b5563; white-space:pre-wrap;">${getVal('paymentNotes')}</p>
+                    </div>
+                `;
+
+                overlay.style.display = 'block';
+                const canvas = await html2canvas(overlay, { scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                pdf.addImage(imgData, 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
+                
+                // --- IMPROVED FILENAME LOGIC ---
+                // Format: [Sender Name]-[Client Company]-[Invoice Number].pdf
+                const sender = getVal('fromName').trim() || 'Sender';
+                const client = getVal('toCompany').trim() || 'Client';
+                const number = getVal('invoiceNumber').trim() || '000';
+                
+                // Sanitize filename to remove characters that might cause OS issues
+                const safeFileName = `${sender}-${client}-${number}`.replace(/[^a-z0-9]/gi, ' ').replace(/\s+/g, '-');
+                pdf.save(`${safeFileName}.pdf`);
+
+            } catch (err) { console.error(err); } 
+            finally {
+                overlay.style.display = 'none';
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        };
+
+        // Init with one row
+        window.onload = () => {
+            if (document.getElementById('itemsList').children.length === 0) {
+                addNewRow('Digital Marketing / Website Maintenance', 8, 50);
+            }
+            document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
+        }
+    </script>
+</body>
+</html>
