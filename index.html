@@ -4,228 +4,176 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice Generator</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- PDF Libraries -->
+    <!-- jspdf for native PDF generation (Small file size) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- autoTable plugin for jspdf to handle tables efficiently -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     
     <style>
-        /* A4 Paper Dimensions for Screen */
         .a4-page {
             width: 210mm;
             min-height: 297mm;
             background: white;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
             margin: 0 auto;
             padding: 20mm;
             box-sizing: border-box;
-            position: relative;
         }
         
         .editable-input {
             background: transparent;
             border: 1px dashed transparent;
             width: 100%;
-            transition: border-color 0.2s;
-            padding: 2px 0;
-            line-height: 1.5;
+            transition: all 0.2s;
+            padding: 2px 4px;
+            border-radius: 4px;
         }
         .editable-input:hover, .editable-input:focus {
-            border-bottom: 1px dashed #cbd5e1;
+            background: #f8fafc;
+            border-color: #cbd5e1;
             outline: none;
-        }
-
-        #print-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: white;
-            z-index: 50;
-            display: none;
-            padding: 20mm;
         }
         
         @media (max-width: 850px) {
-            .a4-page {
-                width: 100%;
-                min-height: auto;
-                padding: 1rem;
-            }
+            .a4-page { width: 100%; min-height: auto; padding: 1rem; }
         }
 
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
-        
-        /* Hide delete button during screen hover but keep accessible */
-        .remove-row-btn {
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-        tr:hover .remove-row-btn {
-            opacity: 1;
-        }
+        .remove-row-btn { opacity: 0; transition: opacity 0.2s; }
+        tr:hover .remove-row-btn { opacity: 1; }
     </style>
 </head>
-<body class="bg-gray-100 h-screen flex overflow-hidden font-sans text-gray-800">
+<body class="bg-slate-50 h-screen flex overflow-hidden font-sans text-slate-800">
 
     <!-- Sidebar -->
-    <div class="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg z-10 flex-shrink-0">
-        <div class="p-6 border-b border-gray-100">
-            <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+    <div class="w-80 bg-white border-r border-slate-200 flex flex-col shadow-sm z-10 flex-shrink-0">
+        <div class="p-6 border-b border-slate-100">
+            <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
                 <i class="fa-solid fa-file-invoice text-blue-600"></i> Invoice Tool
             </h1>
-            <p class="text-xs text-gray-500 mt-1">Managed by Gaurav Gupta</p>
         </div>
         
         <div class="p-4">
-            <button onclick="createNewInvoice()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors">
+            <button onclick="createNewInvoice()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md active:scale-95">
                 <i class="fa-solid fa-plus"></i> New Invoice
             </button>
         </div>
 
-        <div class="flex-1 overflow-y-auto no-scrollbar px-4 pb-4 space-y-2" id="invoiceList">
-            <div class="flex justify-center p-4">
-                <i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i>
-            </div>
+        <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-2" id="invoiceList">
+            <!-- Invoices load here -->
         </div>
     </div>
 
     <!-- Main Content -->
-    <div class="flex-1 overflow-y-auto relative p-8">
-        <!-- Toolbar -->
-        <div class="max-w-[210mm] mx-auto mb-6 flex justify-between items-center bg-white p-4 rounded-lg shadow-sm sticky top-0 z-20">
-            <div class="flex items-center gap-2 text-sm text-gray-600">
-                <span id="statusIndicator" class="w-2 h-2 rounded-full bg-yellow-400"></span>
-                <span id="statusText">Loading...</span>
+    <div class="flex-1 overflow-y-auto p-8">
+        <div class="max-w-[210mm] mx-auto mb-6 flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm sticky top-0 z-20 border border-slate-100">
+            <div class="flex items-center gap-2 text-sm font-medium">
+                <span id="statusIndicator" class="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse"></span>
+                <span id="statusText" class="text-slate-500">Connecting...</span>
             </div>
             <div class="flex gap-3">
-                <button onclick="saveInvoice()" class="flex items-center gap-2 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium text-sm">
+                <button onclick="saveInvoice()" class="flex items-center gap-2 px-5 py-2.5 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all font-semibold text-sm">
                     <i class="fa-solid fa-floppy-disk"></i> Save
                 </button>
-                <button onclick="generatePDF()" id="btnDownload" class="flex items-center gap-2 px-4 py-2 text-white bg-gray-800 hover:bg-gray-900 rounded-lg transition-colors font-medium text-sm shadow-sm">
-                    <i class="fa-solid fa-download"></i> Download PDF
+                <button onclick="generateNativePDF()" id="btnDownload" class="flex items-center gap-2 px-5 py-2.5 text-white bg-slate-900 hover:bg-black rounded-xl transition-all font-semibold text-sm shadow-lg active:scale-95">
+                    <i class="fa-solid fa-file-pdf"></i> Download PDF
                 </button>
             </div>
         </div>
 
-        <!-- Invoice Paper -->
-        <div id="invoicePaper" class="a4-page relative text-sm leading-relaxed overflow-hidden">
-            
-            <!-- Hidden Overlay for Print Quality -->
-            <div id="print-overlay"></div>
-
+        <div id="invoicePaper" class="a4-page relative text-sm leading-relaxed text-slate-700 border border-slate-200">
             <!-- Header -->
             <div class="flex justify-between items-start mb-12">
                 <div>
-                    <h2 class="text-4xl font-bold text-gray-800 tracking-wide mb-1">INVOICE</h2>
-                    <div class="mt-6 text-gray-600">
-                        <p class="text-xs font-bold text-gray-400 uppercase mb-1">From</p>
-                        <input type="text" id="fromName" class="editable-input font-bold text-gray-800 block mb-1" value="Gaurav Gupta">
-                        <input type="text" id="fromAddress" class="editable-input block" value="Surrey, BC">
-                        <div class="flex items-center gap-2">
-                            <span class="whitespace-nowrap">Ph#</span>
-                            <input type="text" id="fromPhone" class="editable-input w-full" value="236-878-6861">
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="whitespace-nowrap">Email:</span>
-                            <input type="text" id="fromEmail" class="editable-input w-full" value="gauravgupta8319@gmail.com">
-                        </div>
+                    <h2 class="text-5xl font-black text-slate-900 tracking-tighter mb-8">INVOICE</h2>
+                    <div class="space-y-1">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">From</p>
+                        <input type="text" id="fromName" class="editable-input font-bold text-slate-900 text-base" value="Gaurav Gupta">
+                        <input type="text" id="fromAddress" class="editable-input" value="Surrey, BC">
+                        <input type="text" id="fromPhone" class="editable-input" value="236-878-6861">
+                        <input type="text" id="fromEmail" class="editable-input" value="gauravgupta8319@gmail.com">
                     </div>
                 </div>
 
-                <div class="text-right">
-                    <div class="mb-6">
-                        <div class="flex justify-end items-center gap-2 mb-1">
-                            <span class="font-bold text-gray-600 whitespace-nowrap">Invoice Number:</span>
-                            <input type="text" id="invoiceNumber" class="editable-input w-20 text-right font-mono font-bold text-gray-800" value="001">
+                <div class="text-right pt-2">
+                    <div class="space-y-2">
+                        <div class="flex justify-end items-center gap-3">
+                            <span class="font-bold text-slate-400 text-xs uppercase">Invoice #</span>
+                            <input type="text" id="invoiceNumber" class="editable-input w-24 text-right font-mono font-bold text-slate-900 bg-slate-50" value="001">
                         </div>
-                        <div class="flex justify-end items-center gap-2 mb-1">
-                            <span class="font-bold text-gray-600 whitespace-nowrap">Date:</span>
-                            <input type="date" id="invoiceDate" class="editable-input w-32 text-right text-gray-800">
+                        <div class="flex justify-end items-center gap-3">
+                            <span class="font-bold text-slate-400 text-xs uppercase">Date</span>
+                            <input type="date" id="invoiceDate" class="editable-input w-36 text-right font-medium">
                         </div>
-                        <div class="flex justify-end items-center gap-2">
-                            <span class="font-bold text-gray-600 whitespace-nowrap">Terms:</span>
-                            <input type="text" id="paymentTerms" class="editable-input w-32 text-right text-gray-800" value="Due upon receipt">
+                        <div class="flex justify-end items-center gap-3">
+                            <span class="font-bold text-slate-400 text-xs uppercase">Terms</span>
+                            <input type="text" id="paymentTerms" class="editable-input w-36 text-right" value="Due on receipt">
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Bill To -->
-            <div class="mb-12">
-                <p class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1 inline-block">Bill To</p>
-                <div class="text-gray-700">
-                    <input type="text" id="toName" class="editable-input font-bold text-lg text-gray-800 mb-1" value="Vipin Gupta">
-                    <input type="text" id="toCompany" class="editable-input block mb-1" value="Frolic Expressions Speech Therapy Inc">
-                    <textarea id="toAddress" class="editable-input block resize-none h-12 mb-1 overflow-hidden" rows="2">8522 168 Street&#13;&#10;Surrey, BC - V4N 5A3</textarea>
-                    <div class="flex items-center gap-2">
-                        <span class="whitespace-nowrap">Ph#</span>
-                        <input type="text" id="toPhone" class="editable-input w-full" value="(778) 893 8887">
+            <div class="mb-12 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Bill To</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1">
+                        <input type="text" id="toName" class="editable-input font-bold text-slate-900 text-lg" value="Vipin Gupta">
+                        <input type="text" id="toCompany" class="editable-input font-semibold text-blue-600" value="Frolic Expressions Speech Therapy Inc">
                     </div>
-                    <div class="flex items-center gap-2">
-                        <span class="whitespace-nowrap">Email:</span>
-                        <input type="text" id="toEmail" class="editable-input w-full" value="info@frolicexpressions.com">
+                    <div class="text-right space-y-1">
+                        <textarea id="toAddress" class="editable-input text-right resize-none h-12 overflow-hidden" rows="2">8522 168 Street, Surrey, BC - V4N 5A3</textarea>
+                        <input type="text" id="toPhone" class="editable-input text-right" value="(778) 893 8887">
+                        <input type="text" id="toEmail" class="editable-input text-right" value="info@frolicexpressions.com">
                     </div>
                 </div>
             </div>
 
-            <!-- Table -->
-            <table class="w-full mb-4 border-collapse">
+            <!-- Items -->
+            <table class="w-full mb-6">
                 <thead>
-                    <tr class="bg-gray-100 text-gray-600 text-xs uppercase tracking-wider text-left">
-                        <th class="p-3 rounded-l-md w-1/2">Description</th>
-                        <th class="p-3 text-right">Hours</th>
-                        <th class="p-3 text-right">Rate</th>
-                        <th class="p-3 text-right">Amount</th>
-                        <th class="p-3 rounded-r-md"></th>
+                    <tr class="text-slate-400 text-[10px] uppercase tracking-widest border-b border-slate-100">
+                        <th class="py-4 text-left font-bold w-1/2">Description</th>
+                        <th class="py-4 text-right font-bold px-4">Hours</th>
+                        <th class="py-4 text-right font-bold px-4">Rate</th>
+                        <th class="py-4 text-right font-bold">Amount</th>
+                        <th class="w-10"></th>
                     </tr>
                 </thead>
-                <tbody id="itemsList">
-                    <!-- Dynamic Rows -->
-                </tbody>
+                <tbody id="itemsList"></tbody>
             </table>
             
-            <button onclick="addNewRow()" class="mb-8 text-blue-600 font-bold flex items-center gap-2 hover:text-blue-800 transition-colors">
-                <i class="fa-solid fa-circle-plus"></i> Add Item
+            <button onclick="addNewRow()" class="mb-12 text-blue-600 font-bold text-xs flex items-center gap-2 hover:bg-blue-50 px-3 py-2 rounded-lg transition-all">
+                <i class="fa-solid fa-plus-circle"></i> ADD LINE ITEM
             </button>
 
-            <!-- Totals Section -->
-            <div class="flex justify-end mb-8">
-                <div class="w-64 space-y-2">
-                    <div class="flex justify-between items-center text-gray-600">
-                        <span class="font-bold">SUBTOTAL</span>
-                        <span id="subtotalAmount" class="font-bold text-gray-800">$0.00</span>
+            <!-- Totals -->
+            <div class="flex justify-end mb-12 border-t border-slate-100 pt-8">
+                <div class="w-72 space-y-3">
+                    <div class="flex justify-between items-center px-2">
+                        <span class="text-slate-400 font-bold text-xs uppercase">Subtotal</span>
+                        <span id="subtotalAmount" class="font-bold text-slate-900">$0.00</span>
                     </div>
-                    <div class="flex justify-between items-center text-gray-600 italic">
-                        <span class="font-bold">Discount (F&F %)</span>
-                        <input type="number" id="discountPercent" class="editable-input text-right font-bold text-red-500 w-16" value="0" oninput="calculateTotal()">
+                    <div class="flex justify-between items-center px-2">
+                        <span class="text-slate-400 font-bold text-xs uppercase italic">Discount (%)</span>
+                        <input type="number" id="discountPercent" class="editable-input text-right font-bold text-red-500 w-16 bg-red-50" value="0" oninput="calculateTotal()">
                     </div>
-                    <div class="flex justify-between items-center border-t border-gray-200 pt-2">
-                        <span class="font-bold text-gray-800">TOTAL DUE</span>
-                        <span id="grandTotal" class="font-bold text-2xl text-blue-600">$0.00</span>
+                    <div class="flex justify-between items-center bg-blue-600 p-4 rounded-xl text-white shadow-lg">
+                        <span class="font-bold text-xs uppercase tracking-widest">Total Due</span>
+                        <span id="grandTotal" class="font-black text-2xl">$0.00</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Instructions -->
-            <div class="border-t border-gray-200 pt-6">
-                <h3 class="font-bold text-gray-800 mb-2">Payment Instructions:</h3>
-                <textarea id="paymentNotes" class="editable-input w-full resize-none h-20 text-gray-600 overflow-hidden" rows="3">Please send e-transfer to: gauravgupta8319@gmail.com</textarea>
+            <!-- Notes -->
+            <div class="bg-slate-50 p-6 rounded-2xl border border-dashed border-slate-200">
+                <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Payment Details</h3>
+                <textarea id="paymentNotes" class="editable-input w-full resize-none h-16 font-medium text-slate-600" rows="2">E-transfer to: gauravgupta8319@gmail.com</textarea>
             </div>
         </div>
     </div>
 
-    <!-- Firebase & Logic -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
@@ -242,22 +190,19 @@
         let invoiceList = [];
 
         async function initAuth() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (err) {
-                console.error("Auth failed", err);
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
             }
         }
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
-                document.getElementById('statusText').innerText = "Ready";
-                document.getElementById('statusIndicator').className = "w-2 h-2 rounded-full bg-green-500";
+                document.getElementById('statusText').innerText = "Connected";
+                document.getElementById('statusIndicator').classList.remove('animate-pulse', 'bg-yellow-400');
+                document.getElementById('statusIndicator').classList.add('bg-green-500');
                 startFirestoreListener();
             }
         });
@@ -265,7 +210,6 @@
         initAuth();
 
         function startFirestoreListener() {
-            if (!currentUser) return;
             const ref = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices');
             onSnapshot(ref, (snapshot) => {
                 invoiceList = [];
@@ -278,81 +222,58 @@
         window.renderInvoiceList = () => {
             const container = document.getElementById('invoiceList');
             container.innerHTML = '';
-            if (invoiceList.length === 0) {
-                container.innerHTML = `<div class="text-center text-gray-400 text-sm mt-4">No invoices found.</div>`;
-                return;
-            }
             invoiceList.forEach(inv => {
                 const isActive = inv.id === currentInvoiceId;
-                const card = document.createElement('div');
-                card.className = `p-3 rounded-lg border cursor-pointer transition-all ${isActive ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-200'}`;
-                card.innerHTML = `
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <div class="font-bold text-gray-800">#${inv.invoiceNumber}</div>
-                            <div class="text-xs text-gray-500">${inv.to?.company || 'Unknown Client'}</div>
-                        </div>
-                        <button class="text-gray-300 hover:text-red-500 transition-colors p-1" onclick="deleteInvoice('${inv.id}', event)">
-                            <i class="fa-solid fa-trash-can"></i>
-                        </button>
+                const div = document.createElement('div');
+                div.className = `p-4 rounded-xl border cursor-pointer transition-all ${isActive ? 'bg-blue-50 border-blue-200 ring-2 ring-blue-100' : 'bg-white border-slate-100 hover:border-blue-200'}`;
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-slate-900">#${inv.invoiceNumber}</span>
+                        <button onclick="deleteInvoice('${inv.id}', event)" class="text-slate-300 hover:text-red-500 p-1"><i class="fa-solid fa-trash-can text-xs"></i></button>
                     </div>
-                    <div class="flex justify-between items-center mt-2 text-xs">
-                        <span class="text-gray-400">${inv.date || ''}</span>
-                        <span class="font-bold text-gray-700">$${inv.total?.toFixed(2) || '0.00'}</span>
+                    <div class="text-xs text-slate-500 font-medium truncate">${inv.to?.company || 'No Company'}</div>
+                    <div class="flex justify-between items-end mt-3">
+                        <span class="text-[10px] text-slate-400 font-bold">${inv.date || ''}</span>
+                        <span class="font-bold text-blue-600 text-sm">$${(inv.total || 0).toFixed(2)}</span>
                     </div>
                 `;
-                card.onclick = () => loadInvoiceIntoForm(inv);
-                container.appendChild(card);
+                div.onclick = () => loadInvoiceIntoForm(inv);
+                container.appendChild(div);
             });
         };
 
-        window.addNewRow = (description = '', hours = 0, rate = 0) => {
+        window.addNewRow = (desc = '', hrs = 0, r = 0) => {
             const tbody = document.getElementById('itemsList');
-            const row = document.createElement('tr');
-            row.className = "border-b border-gray-100 group";
-            row.innerHTML = `
-                <td class="p-2">
-                    <input type="text" class="editable-input font-medium item-desc" value="${description}" oninput="calculateTotal()">
-                </td>
-                <td class="p-2">
-                    <input type="number" class="editable-input text-right item-hours" value="${hours}" step="0.5" oninput="calculateTotal()">
-                </td>
-                <td class="p-2">
-                    <div class="flex justify-end items-center">
-                        <span>$</span>
-                        <input type="number" class="editable-input text-right w-16 item-rate" value="${rate}" oninput="calculateTotal()">
-                    </div>
-                </td>
-                <td class="p-2 text-right font-bold text-gray-800 item-total">$0.00</td>
-                <td class="p-2 text-center">
-                    <button onclick="this.closest('tr').remove(); calculateTotal();" class="remove-row-btn text-gray-300 hover:text-red-500 transition-colors">
-                        <i class="fa-solid fa-circle-xmark"></i>
-                    </button>
+            const tr = document.createElement('tr');
+            tr.className = "border-b border-slate-50 group transition-colors hover:bg-slate-50/50";
+            tr.innerHTML = `
+                <td class="py-4 pr-4"><input type="text" class="editable-input font-semibold item-desc" value="${desc}" oninput="calculateTotal()"></td>
+                <td class="py-4 px-4"><input type="number" class="editable-input text-right item-hours" value="${hrs}" step="0.5" oninput="calculateTotal()"></td>
+                <td class="py-4 px-4"><input type="number" class="editable-input text-right item-rate" value="${r}" oninput="calculateTotal()"></td>
+                <td class="py-4 text-right font-bold text-slate-900 item-total">$0.00</td>
+                <td class="py-4 pl-4 text-center">
+                    <button onclick="this.closest('tr').remove(); calculateTotal();" class="remove-row-btn text-slate-300 hover:text-red-500"><i class="fa-solid fa-times-circle"></i></button>
                 </td>
             `;
-            tbody.appendChild(row);
+            tbody.appendChild(tr);
             calculateTotal();
         };
 
         window.calculateTotal = () => {
-            let subtotal = 0;
-            const rows = document.getElementById('itemsList').querySelectorAll('tr');
-            
-            rows.forEach(row => {
-                const hours = parseFloat(row.querySelector('.item-hours').value) || 0;
-                const rate = parseFloat(row.querySelector('.item-rate').value) || 0;
-                const rowTotal = hours * rate;
-                subtotal += rowTotal;
+            let sub = 0;
+            document.querySelectorAll('#itemsList tr').forEach(row => {
+                const h = parseFloat(row.querySelector('.item-hours').value) || 0;
+                const r = parseFloat(row.querySelector('.item-rate').value) || 0;
+                const rowTotal = h * r;
+                sub += rowTotal;
                 row.querySelector('.item-total').innerText = '$' + rowTotal.toFixed(2);
             });
-            
-            const discountPercent = parseFloat(document.getElementById('discountPercent').value) || 0;
-            const discountAmount = (subtotal * discountPercent) / 100;
-            const total = subtotal - discountAmount;
-
-            document.getElementById('subtotalAmount').innerText = '$' + subtotal.toFixed(2);
+            const discP = parseFloat(document.getElementById('discountPercent').value) || 0;
+            const discA = (sub * discP) / 100;
+            const total = sub - discA;
+            document.getElementById('subtotalAmount').innerText = '$' + sub.toFixed(2);
             document.getElementById('grandTotal').innerText = '$' + total.toFixed(2);
-            return { subtotal, total, discountAmount };
+            return { sub, total, discA };
         };
 
         window.loadInvoiceIntoForm = (inv) => {
@@ -371,46 +292,35 @@
             document.getElementById('toPhone').value = inv.to?.phone || '';
             document.getElementById('toEmail').value = inv.to?.email || '';
             document.getElementById('discountPercent').value = inv.discountPercent || 0;
-            
             const tbody = document.getElementById('itemsList');
             tbody.innerHTML = '';
-            if (inv.items && inv.items.length > 0) {
-                inv.items.forEach(item => {
-                    addNewRow(item.description, item.hours, item.rate);
-                });
-            } else {
-                addNewRow();
-            }
+            (inv.items || []).forEach(it => addNewRow(it.description, it.hours, it.rate));
+            if (!inv.items?.length) addNewRow();
             renderInvoiceList();
             calculateTotal();
         };
 
         window.createNewInvoice = () => {
             currentInvoiceId = null;
-            let nextNum = "001";
+            let next = "001";
             if (invoiceList.length > 0) {
-                const lastNum = parseInt(invoiceList[0].invoiceNumber);
-                if (!isNaN(lastNum)) nextNum = String(lastNum + 1).padStart(3, '0');
+                const last = parseInt(invoiceList[0].invoiceNumber);
+                if (!isNaN(last)) next = String(last + 1).padStart(3, '0');
             }
-            document.getElementById('invoiceNumber').value = nextNum;
+            document.getElementById('invoiceNumber').value = next;
             document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
-            document.getElementById('discountPercent').value = 0;
             document.getElementById('itemsList').innerHTML = '';
             addNewRow('Digital Marketing / Website Maintenance', 8, 50);
-            calculateTotal();
             renderInvoiceList();
         };
 
         window.saveInvoice = async () => {
             if (!currentUser) return;
-            const items = [];
-            document.querySelectorAll('#itemsList tr').forEach(row => {
-                items.push({
-                    description: row.querySelector('.item-desc').value,
-                    hours: parseFloat(row.querySelector('.item-hours').value) || 0,
-                    rate: parseFloat(row.querySelector('.item-rate').value) || 0
-                });
-            });
+            const items = Array.from(document.querySelectorAll('#itemsList tr')).map(row => ({
+                description: row.querySelector('.item-desc').value,
+                hours: parseFloat(row.querySelector('.item-hours').value) || 0,
+                rate: parseFloat(row.querySelector('.item-rate').value) || 0
+            }));
 
             const data = {
                 invoiceNumber: document.getElementById('invoiceNumber').value,
@@ -419,7 +329,6 @@
                 notes: document.getElementById('paymentNotes').value,
                 discountPercent: parseFloat(document.getElementById('discountPercent').value) || 0,
                 total: calculateTotal().total,
-                createdAt: serverTimestamp(),
                 from: {
                     name: document.getElementById('fromName').value,
                     address: document.getElementById('fromAddress').value,
@@ -433,149 +342,162 @@
                     phone: document.getElementById('toPhone').value,
                     email: document.getElementById('toEmail').value,
                 },
-                items: items
+                items,
+                updatedAt: serverTimestamp()
             };
-            try {
-                const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices');
-                if (currentInvoiceId) await updateDoc(doc(colRef, currentInvoiceId), data);
-                else { const docRef = await addDoc(colRef, data); currentInvoiceId = docRef.id; }
-            } catch (e) { console.error(e); }
+
+            const ref = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices');
+            if (currentInvoiceId) await updateDoc(doc(ref, currentInvoiceId), data);
+            else await addDoc(ref, data);
         };
 
-        window.deleteInvoice = async (id, event) => {
-            event.stopPropagation();
-            if (!confirm("Delete this invoice?") || !currentUser) return;
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices', id)); }
-            catch (e) { console.error(e); }
+        window.deleteInvoice = async (id, e) => {
+            e.stopPropagation();
+            if (!confirm("Delete this invoice?")) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'invoices', id));
         };
 
-        window.generatePDF = async () => {
+        // NATIVE PDF GENERATION (Super small file size)
+        window.generateNativePDF = async () => {
             const btn = document.getElementById('btnDownload');
-            const overlay = document.getElementById('print-overlay');
-            const originalText = btn.innerHTML;
-            
-            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing...`;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Generating...`;
             btn.disabled = true;
 
             try {
-                const getVal = (id) => document.getElementById(id).value;
-                const { subtotal, total, discountAmount } = calculateTotal();
-                const discountVal = parseFloat(getVal('discountPercent')) || 0;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
                 
-                // Build Item Rows for PDF
-                let itemsHtml = '';
-                document.querySelectorAll('#itemsList tr').forEach(row => {
-                    const desc = row.querySelector('.item-desc').value;
-                    const hours = row.querySelector('.item-hours').value;
-                    const rate = row.querySelector('.item-rate').value;
-                    const amt = (parseFloat(hours) || 0) * (parseFloat(rate) || 0);
-                    itemsHtml += `
-                        <tr style="border-bottom:1px solid #f3f4f6; color:#1f2937;">
-                            <td style="padding:12px; font-weight:500;">${desc}</td>
-                            <td style="padding:12px; text-align:right;">${hours}</td>
-                            <td style="padding:12px; text-align:right;">$${rate}</td>
-                            <td style="padding:12px; text-align:right; font-weight:bold;">$${amt.toFixed(2)}</td>
-                        </tr>
-                    `;
+                const getVal = id => document.getElementById(id).value;
+                const { sub, total, discA } = calculateTotal();
+                const discP = getVal('discountPercent');
+
+                // Header
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(36);
+                doc.setTextColor(31, 41, 55);
+                doc.text("INVOICE", 20, 30);
+
+                // Meta Info
+                doc.setFontSize(10);
+                doc.setTextColor(107, 114, 128);
+                doc.text("INVOICE #:", 140, 20);
+                doc.setTextColor(31, 41, 55);
+                doc.text(getVal('invoiceNumber'), 175, 20, { align: "right" });
+
+                doc.setTextColor(107, 114, 128);
+                doc.text("DATE:", 140, 27);
+                doc.setTextColor(31, 41, 55);
+                doc.text(getVal('invoiceDate'), 175, 27, { align: "right" });
+
+                doc.setTextColor(107, 114, 128);
+                doc.text("TERMS:", 140, 34);
+                doc.setTextColor(31, 41, 55);
+                doc.text(getVal('paymentTerms'), 175, 34, { align: "right" });
+
+                // From
+                doc.setFontSize(8);
+                doc.setTextColor(156, 163, 175);
+                doc.text("FROM", 20, 50);
+                doc.setFontSize(10);
+                doc.setTextColor(31, 41, 55);
+                doc.setFont("helvetica", "bold");
+                doc.text(getVal('fromName'), 20, 56);
+                doc.setFont("helvetica", "normal");
+                doc.text([getVal('fromAddress'), getVal('fromPhone'), getVal('fromEmail')], 20, 61);
+
+                // Bill To
+                doc.setFillColor(248, 250, 252);
+                doc.roundedRect(20, 80, 170, 35, 3, 3, "F");
+                doc.setFontSize(8);
+                doc.setTextColor(156, 163, 175);
+                doc.text("BILL TO", 26, 88);
+                doc.setFontSize(11);
+                doc.setTextColor(17, 24, 39);
+                doc.setFont("helvetica", "bold");
+                doc.text(getVal('toName'), 26, 96);
+                doc.setTextColor(37, 99, 235);
+                doc.text(getVal('toCompany'), 26, 102);
+                
+                doc.setFontSize(9);
+                doc.setTextColor(75, 85, 99);
+                doc.setFont("helvetica", "normal");
+                doc.text([getVal('toAddress'), `Ph: ${getVal('toPhone')}`, getVal('toEmail')], 184, 95, { align: "right" });
+
+                // Items Table
+                const rows = Array.from(document.querySelectorAll('#itemsList tr')).map(tr => [
+                    tr.querySelector('.item-desc').value,
+                    tr.querySelector('.item-hours').value,
+                    `$${parseFloat(tr.querySelector('.item-rate').value).toFixed(2)}`,
+                    tr.querySelector('.item-total').innerText
+                ]);
+
+                doc.autoTable({
+                    startY: 125,
+                    head: [['DESCRIPTION', 'HOURS', 'RATE', 'AMOUNT']],
+                    body: rows,
+                    theme: 'striped',
+                    headStyles: { fillStyle: 'transparent', textColor: [156, 163, 175], fontSize: 8, fontStyle: 'bold' },
+                    styles: { fontSize: 9, cellPadding: 5 },
+                    columnStyles: {
+                        0: { cellWidth: 90 },
+                        1: { halign: 'right' },
+                        2: { halign: 'right' },
+                        3: { halign: 'right', fontStyle: 'bold' }
+                    }
                 });
 
-                let discountHtml = '';
-                if (discountVal > 0) {
-                    discountHtml = `
-                        <tr>
-                            <td colspan="3" style="padding:8px 16px; text-align:right; font-weight:bold; color:#4b5563; font-style:italic;">Family & Friends Discount (${discountVal}%)</td>
-                            <td style="padding:8px 16px; text-align:right; font-weight:bold; color:#ef4444;">-$${discountAmount.toFixed(2)}</td>
-                        </tr>
-                    `;
+                // Totals
+                let finalY = doc.lastAutoTable.finalY + 10;
+                doc.setFontSize(10);
+                doc.setTextColor(107, 114, 128);
+                doc.text("SUBTOTAL:", 140, finalY);
+                doc.setTextColor(31, 41, 55);
+                doc.text(`$${sub.toFixed(2)}`, 184, finalY, { align: "right" });
+
+                if (discA > 0) {
+                    finalY += 7;
+                    doc.setTextColor(239, 68, 68);
+                    doc.text(`DISCOUNT (${discP}%):`, 140, finalY);
+                    doc.text(`-$${discA.toFixed(2)}`, 184, finalY, { align: "right" });
                 }
 
-                overlay.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:48px;">
-                        <div>
-                            <h2 style="font-size:36px; font-weight:bold; color:#1f2937; margin-bottom:24px;">INVOICE</h2>
-                            <div style="color:#4b5563;">
-                                <p style="font-size:10px; font-weight:bold; color:#9ca3af; text-transform:uppercase; margin-bottom:4px;">From</p>
-                                <p style="font-weight:bold; color:#111827; margin-bottom:4px;">${getVal('fromName')}</p>
-                                <p style="margin-bottom:4px;">${getVal('fromAddress')}</p>
-                                <p style="margin-bottom:4px;">Ph# ${getVal('fromPhone')}</p>
-                                <p style="margin-bottom:4px;">Email: ${getVal('fromEmail')}</p>
-                            </div>
-                        </div>
-                        <div style="text-align:right; color:#1f2937;">
-                            <p style="margin-bottom:4px;"><span style="font-weight:bold; color:#4b5563;">Invoice Number:</span> <span style="font-family:monospace; font-weight:bold;">${getVal('invoiceNumber')}</span></p>
-                            <p style="margin-bottom:4px;"><span style="font-weight:bold; color:#4b5563;">Date:</span> ${getVal('invoiceDate')}</p>
-                            <p><span style="font-weight:bold; color:#4b5563;">Terms:</span> ${getVal('paymentTerms')}</p>
-                        </div>
-                    </div>
-                    <div style="margin-bottom:48px;">
-                        <p style="font-size:10px; font-weight:bold; color:#9ca3af; text-transform:uppercase; margin-bottom:8px; border-bottom:1px solid #e5e7eb; display:inline-block; padding-bottom:4px;">Bill To</p>
-                        <div style="color:#374151;">
-                            <p style="font-weight:bold; font-size:18px; color:#111827; margin-bottom:4px;">${getVal('toName')}</p>
-                            <p style="margin-bottom:4px;">${getVal('toCompany')}</p>
-                            <p style="white-space:pre-wrap; margin-bottom:4px;">${getVal('toAddress')}</p>
-                            <p style="margin-bottom:4px;">Ph# ${getVal('toPhone')}</p>
-                            <p>Email: ${getVal('toEmail')}</p>
-                        </div>
-                    </div>
-                    <table style="width:100%; border-collapse:collapse; margin-bottom:32px;">
-                        <thead>
-                            <tr style="background:#f3f4f6; color:#4b5563; font-size:12px; text-transform:uppercase; text-align:left;">
-                                <th style="padding:12px;">Description</th>
-                                <th style="padding:12px; text-align:right;">Hours</th>
-                                <th style="padding:12px; text-align:right;">Rate</th>
-                                <th style="padding:12px; text-align:right;">Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>${itemsHtml}</tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="3" style="padding:16px 16px 8px 16px; text-align:right; font-weight:bold; color:#4b5563;">SUBTOTAL</td>
-                                <td style="padding:16px 16px 8px 16px; text-align:right; font-weight:bold; color:#1f2937;">$${subtotal.toFixed(2)}</td>
-                            </tr>
-                            ${discountHtml}
-                            <tr>
-                                <td colspan="3" style="padding:16px; text-align:right; font-weight:bold; color:#4b5563;">TOTAL DUE</td>
-                                <td style="padding:16px; text-align:right; font-weight:bold; font-size:24px; color:#2563eb;">$${total.toFixed(2)}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    <div style="border-top:1px solid #e5e7eb; padding-top:24px;">
-                        <h3 style="font-weight:bold; color:#1f2937; margin-bottom:8px;">Payment Instructions:</h3>
-                        <p style="color:#4b5563; white-space:pre-wrap;">${getVal('paymentNotes')}</p>
-                    </div>
-                `;
+                finalY += 5;
+                doc.setFillColor(37, 99, 235);
+                doc.roundedRect(130, finalY, 60, 15, 2, 2, "F");
+                doc.setTextColor(255, 255, 255);
+                doc.setFont("helvetica", "bold");
+                doc.text("TOTAL DUE", 135, finalY + 10);
+                doc.setFontSize(14);
+                doc.text(`$${total.toFixed(2)}`, 184, finalY + 10, { align: "right" });
 
-                overlay.style.display = 'block';
-                const canvas = await html2canvas(overlay, { scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-                const imgData = canvas.toDataURL('image/png');
-                const pdf = new jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-                pdf.addImage(imgData, 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
-                
-                // --- IMPROVED FILENAME LOGIC ---
-                // Format: [Sender Name]-[Client Company]-[Invoice Number].pdf
-                const sender = getVal('fromName').trim() || 'Sender';
+                // Footer
+                finalY += 30;
+                doc.setFontSize(8);
+                doc.setTextColor(156, 163, 175);
+                doc.text("PAYMENT DETAILS", 20, finalY);
+                doc.setFontSize(10);
+                doc.setTextColor(75, 85, 99);
+                doc.setFont("helvetica", "normal");
+                doc.text(getVal('paymentNotes'), 20, finalY + 7);
+
+                // Save with specific name
+                const sender = getVal('fromName').trim() || 'Gaurav-Gupta';
                 const client = getVal('toCompany').trim() || 'Client';
-                const number = getVal('invoiceNumber').trim() || '000';
-                
-                // Sanitize filename to remove characters that might cause OS issues
-                const safeFileName = `${sender}-${client}-${number}`.replace(/[^a-z0-9]/gi, ' ').replace(/\s+/g, '-');
-                pdf.save(`${safeFileName}.pdf`);
+                const num = getVal('invoiceNumber').trim() || '001';
+                const safeName = `${sender}-${client}-${num}`.replace(/[^a-z0-9]/gi, '-');
+                doc.save(`${safeName}.pdf`);
 
             } catch (err) { console.error(err); } 
             finally {
-                overlay.style.display = 'none';
-                btn.innerHTML = originalText;
+                btn.innerHTML = `<i class="fa-solid fa-file-pdf"></i> Download PDF`;
                 btn.disabled = false;
             }
         };
 
-        // Init with one row
         window.onload = () => {
-            if (document.getElementById('itemsList').children.length === 0) {
-                addNewRow('Digital Marketing / Website Maintenance', 8, 50);
-            }
             document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
-        }
+            addNewRow('Digital Marketing / Website Maintenance', 8, 50);
+        };
     </script>
 </body>
 </html>
